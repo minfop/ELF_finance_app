@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #F89344;
+  --color-header: #fff1d6;
+  --color-sidebar: #57886c;
+  --color-background: #fff1d6;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply antialiased text-gray-800 bg-background;
+}
