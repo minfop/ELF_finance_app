@@ -208,7 +208,7 @@ function Users() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-header border-b border-gray-200">
@@ -226,7 +226,7 @@ function Users() {
                 <tr key={u.id} className="border-b last:border-b-0">
                   <td className="px-4 py-2">{u.name}</td>
                   <td className="px-4 py-2 capitalize">{u.roleName}</td>
-                  <td className="px-4 py-2">{u.phoneNumber}</td>
+                  <td className="px-4 py-2"><a href={`tel:${u.phoneNumber}`} className="text-primary hover:underline">{u.phoneNumber}</a></td>
                   <td className="px-4 py-2">{u.email}</td>
                   <td className="px-4 py-2">
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${u.isActive?.data?.[0] ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
@@ -249,6 +249,36 @@ function Users() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {users.map((u) => (
+          <div key={u.id} className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-gray-900">{u.name}</div>
+              <span className="capitalize text-xs rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-gray-700">{u.roleName}</span>
+            </div>
+            <div className="mt-2 text-sm text-gray-700">
+              <div>Phone: <a href={`tel:${u.phoneNumber}`} className="text-primary hover:underline">{u.phoneNumber}</a></div>
+              <div>Email: {u.email}</div>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${u.isActive?.data?.[0] ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                {u.isActive?.data?.[0] ? 'Active' : 'Inactive'}
+              </span>
+              <div className="flex items-center gap-3">
+                <button className="text-gray-600 hover:text-gray-900" title="Edit" onClick={() => onEdit(u)}>✏️</button>
+                <button className="text-red-600 hover:text-red-700" title="Deactivate" onClick={() => onDeactivate(u.id)}>🗑️</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {users.length === 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-600">
+            {loading ? 'Loading users...' : 'No users found.'}
+          </div>
+        )}
       </div>
     </section>
   )

@@ -16,6 +16,10 @@ import Login from './pages/Login.tsx'
 import CreateCompany from './pages/CreateCompany.tsx'
 import CreateAdmin from './pages/CreateAdmin.tsx'
 import LineTypePage from './pages/LineType.tsx'
+import Installments from './pages/Installments.tsx'
+import Lines from './pages/Lines.tsx'
+import ExpensesTypes from './pages/ExpensesTypes.tsx'
+import Expenses from './pages/Expenses.tsx'
 import App from './App.tsx'
 
 const router = createBrowserRouter([
@@ -34,6 +38,10 @@ const router = createBrowserRouter([
           { path: 'customers', element: <Customers /> },
           { path: 'collection-types', element: <CollectionTypes /> },
           { path: 'loans', element: <Loans /> },
+          { path: 'loans/:loanId/installments', element: <Installments /> },
+          { path: 'lines', element: <Lines /> },
+          { path: 'expenses-types', element: <ExpensesTypes /> },
+              { path: 'expenses', element: <Expenses /> },
           { path: '/line-types', element: <LineTypePage /> },
           { path: '*', element: <NotFound /> },
         ],

@@ -12,6 +12,13 @@ type Customer = {
   email: string
   photo?: string
   documents?: string
+  longitude?: number
+  latitude?: number
+  place?: string
+  identifyNumber?: string
+  addidtionalMobile?: string
+  address?: string
+  referenceById?: number
   isActive: any
   createdAt: string
   tenantName: string
@@ -30,10 +37,18 @@ function Customers() {
     email: '',
     photo: '',
     documents: '',
+    addidtionalMobile: '',
+    identifyNumber: '',
+    place: '',
+    address: '',
+    latitude: '' as unknown as number | null,
+    longitude: '' as unknown as number | null,
+    referenceById: '' as unknown as number | null,
     isActive: true,
   })
   const [touched, setTouched] = useState(false)
   const isEditing = editingId !== null
+  const [locationError, setLocationError] = useState<string | undefined>()
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((s) => ({ ...s, [key]: value }))
@@ -57,6 +72,33 @@ function Customers() {
   function isValidJsonOrEmpty(v: string) {
     if (!v) return true
     try { JSON.parse(v); return true } catch { return false }
+  }
+
+  const docEntries = useMemo(() => {
+    try {
+      const obj = form.documents ? JSON.parse(form.documents) as Record<string, string> : {}
+      return Object.entries(obj) as [string, string][]
+    } catch {
+      return [] as [string, string][]
+    }
+  }, [form.documents])
+
+  function useMyLocation() {
+    setLocationError(undefined)
+    if (!('geolocation' in navigator)) {
+      setLocationError('Geolocation not supported')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        update('latitude', pos.coords.latitude as any)
+        update('longitude', pos.coords.longitude as any)
+      },
+      (err) => {
+        setLocationError(err.message || 'Unable to get location')
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
   }
 
   const formErrors = useMemo(() => ({
@@ -100,16 +142,23 @@ function Customers() {
       setLoading(true)
       const endpoint = isEditing ? buildApiUrl(`/customers/${editingId}`) : buildApiUrl('/customers')
       const method = isEditing ? 'PUT' : 'POST'
-      const body = isEditing
-        ? JSON.stringify({
-            name: form.name,
-            phoneNumber: form.phoneNumber,
-            email: form.email,
-            photo: form.photo || undefined,
-            documents: form.documents || undefined,
-            isActive: form.isActive,
-          })
-        : JSON.stringify(form)
+      const payload: any = {
+        name: form.name,
+        phoneNumber: form.phoneNumber,
+        email: form.email,
+        photo: form.photo || undefined,
+        documents: form.documents || undefined,
+        isActive: form.isActive,
+      }
+      if (form.addidtionalMobile) payload.addidtionalMobile = form.addidtionalMobile
+      if (form.identifyNumber) payload.identifyNumber = form.identifyNumber
+      if (form.place) payload.place = form.place
+      if (form.address) payload.address = form.address
+      if (form.latitude !== null && form.latitude !== ('' as any)) payload.latitude = Number(form.latitude)
+      if (form.longitude !== null && form.longitude !== ('' as any)) payload.longitude = Number(form.longitude)
+      if (form.referenceById !== null && form.referenceById !== ('' as any)) payload.referenceById = Number(form.referenceById)
+
+      const body = JSON.stringify(payload)
       const res = await fetch(endpoint, {
         method,
         headers: {
@@ -125,7 +174,7 @@ function Customers() {
       }
       setShowForm(false)
       setEditingId(null)
-      setForm({ name: '', phoneNumber: '+91', email: '', photo: '', documents: '', isActive: true })
+      setForm({ name: '', phoneNumber: '+91', email: '', photo: '', documents: '', addidtionalMobile: '', identifyNumber: '', place: '', address: '', latitude: '' as any, longitude: '' as any, referenceById: '' as any, isActive: true })
       fetchCustomers()
     } catch (e: any) {
       setError(e?.message || 'Request failed')
@@ -144,6 +193,13 @@ function Customers() {
       email: c.email || '',
       photo: c.photo || '',
       documents: c.documents || '',
+      addidtionalMobile: c.addidtionalMobile || '',
+      identifyNumber: c.identifyNumber || '',
+      place: c.place || '',
+      address: c.address || '',
+      latitude: (c.latitude !== undefined && c.latitude !== null && !Number.isNaN(Number((c as any).latitude))) ? Number((c as any).latitude) : ('' as any),
+      longitude: (c.longitude !== undefined && c.longitude !== null && !Number.isNaN(Number((c as any).longitude))) ? Number((c as any).longitude) : ('' as any),
+      referenceById: (c.referenceById as number) ?? ('' as any),
       isActive: !!(c.isActive?.data?.[0] ?? c.isActive),
     })
   }
@@ -196,6 +252,47 @@ function Customers() {
               <input className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={form.email} onChange={(e) => update('email', e.target.value)} placeholder="user@company.com" />
               {formErrors.email && <p className="mt-1 text-xs text-red-600">{formErrors.email}</p>}
             </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Additional Mobile</label>
+            <input className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={form.addidtionalMobile} onChange={(e) => update('addidtionalMobile', e.target.value)} placeholder="+919999999999" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Identify Number</label>
+            <input className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={form.identifyNumber} onChange={(e) => update('identifyNumber', e.target.value)} placeholder="123456789V" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Place</label>
+            <input className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={form.place} onChange={(e) => update('place', e.target.value)} placeholder="Colombo" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700">Address</label>
+            <textarea className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" rows={3} value={form.address} onChange={(e) => update('address', e.target.value)} placeholder="123 Main Street, Colombo" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Latitude</label>
+            <input type="number" disabled step="0.00000001" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={(form.latitude as any) || ''} onChange={(e) => update('latitude', (e.target.value === '' ? ('' as any) : Number(e.target.value)))} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Longitude</label>
+            <input type="number" disabled step="0.00000001" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={(form.longitude as any) || ''} onChange={(e) => update('longitude', (e.target.value === '' ? ('' as any) : Number(e.target.value)))} />
+          </div>
+          <div className="flex items-end">
+            <Button type="button" onClick={useMyLocation}>Get Location</Button>
+          </div>
+          {locationError && <div className="md:col-span-2 text-xs text-red-600">{locationError}</div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Reference By (Customer)</label>
+            <select
+              className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3"
+              value={(form.referenceById as any) || ''}
+              onChange={(e) => update('referenceById', (e.target.value === '' ? ('' as any) : Number(e.target.value)))}
+            >
+              <option value="">Select customer</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Photo</label>
               <input
@@ -233,6 +330,19 @@ function Customers() {
                 </p>
               )}
               {formErrors.documents && <p className="mt-1 text-xs text-red-600">{formErrors.documents}</p>}
+            {docEntries.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+                {docEntries.map(([name, data]) => (
+                  <div key={name} className="border border-gray-200 rounded-md p-2 text-xs text-gray-700">
+                    {String(data).startsWith('data:image') ? (
+                      <img src={data} alt={name} className="w-full h-24 object-cover rounded" />
+                    ) : (
+                      <a href={data} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all">{name}</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             </div>
             <div className="flex items-center gap-2 mt-1">
               <input type="checkbox" checked={form.isActive} onChange={(e) => update('isActive', e.target.checked)} />
@@ -245,7 +355,7 @@ function Customers() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-header border-b border-gray-200">
@@ -266,7 +376,7 @@ function Customers() {
                     )}
                     <span>{c.name}</span>
                   </td>
-                  <td className="px-4 py-2">{c.phoneNumber}</td>
+                  <td className="px-4 py-2"><a href={`tel:${c.phoneNumber}`} className="text-primary hover:underline">{c.phoneNumber}</a></td>
                   <td className="px-4 py-2">{c.email}</td>
                   <td className="px-4 py-2">
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${(c.isActive?.data?.[0] ?? c.isActive) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
@@ -274,6 +384,9 @@ function Customers() {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right">
+                    {((c.latitude != null  && !Number.isNaN(Number((c as any).latitude))) && (c.latitude != null  && !Number.isNaN(Number((c as any).longitude)))) && (
+                      <a className="mr-2 text-primary hover:underline" href={`https://www.google.com/maps?q=${(c as any).latitude},${(c as any).longitude}`} target="_blank" rel="noreferrer">Navigate</a>
+                    )}
                     <button className="mr-2 text-gray-600 hover:text-gray-900" title="Edit" onClick={() => onEdit(c)}>✏️</button>
                     <button className="text-red-600 hover:text-red-700" title="Deactivate" onClick={() => onDeactivate(c.id)}>🗑️</button>
                   </td>
@@ -289,6 +402,46 @@ function Customers() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {customers.map((c) => (
+          <div key={c.id} className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center gap-3">
+              {c.photo && c.photo.startsWith('data:image') && (
+                <img src={c.photo} alt="avatar" className="w-10 h-10 rounded-full object-cover border" />
+              )}
+              <div>
+                <div className="font-semibold text-gray-900">{c.name}</div>
+                <div className="text-sm text-gray-600">{c.email}</div>
+              </div>
+            </div>
+            <div className="mt-2 text-sm text-gray-700">Phone: <a href={`tel:${c.phoneNumber}`} className="text-primary hover:underline">{c.phoneNumber}</a></div>
+            {(c as any).addidtionalMobile && (
+              <div className="text-sm text-gray-700">Alt: <a href={`tel:${(c as any).addidtionalMobile}`} className="text-primary hover:underline">{(c as any).addidtionalMobile}</a></div>
+            )}
+            {!Number.isNaN(Number((c as any).latitude)) && !Number.isNaN(Number((c as any).longitude)) && (
+              <div className="mt-2">
+                <a className="text-primary hover:underline" href={`https://www.google.com/maps?q=${(c as any).latitude},${(c as any).longitude}`} target="_blank" rel="noreferrer">Navigate</a>
+              </div>
+            )}
+            <div className="mt-3 flex items-center justify-between">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${(c.isActive?.data?.[0] ?? c.isActive) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                {(c.isActive?.data?.[0] ?? c.isActive) ? 'Active' : 'Inactive'}
+              </span>
+              <div className="flex items-center gap-3">
+                <button className="text-gray-600 hover:text-gray-900" title="Edit" onClick={() => onEdit(c)}>✏️</button>
+                <button className="text-red-600 hover:text-red-700" title="Deactivate" onClick={() => onDeactivate(c.id)}>🗑️</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {customers.length === 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-600">
+            {loading ? 'Loading...' : 'No customers found.'}
+          </div>
+        )}
       </div>
     </section>
   )
