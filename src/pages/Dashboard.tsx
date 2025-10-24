@@ -6,13 +6,6 @@ import { Chart, registerables } from 'chart.js'
 
 Chart.register(...registerables)
 
-type Loan = {
-  id: number
-  isActive: any
-  status: string
-  collectionType: string
-  installmentAmount: string
-}
 type LineTypeOpt = { id: number; name: string }
 
 function Dashboard() {

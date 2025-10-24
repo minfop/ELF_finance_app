@@ -229,7 +229,7 @@ function Customers() {
     <section>
       <div className="flex items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-semibold">Customer Management</h1>
-        <Button onClick={() => { setShowForm((v) => !v); setEditingId(null); setForm({ name: '', phoneNumber: '+91', email: '', photo: '', documents: '', isActive: true }); }}>{showForm ? 'Cancel' : 'Add Customer'}</Button>
+        <Button onClick={() => { setShowForm((v) => !v); setEditingId(null); setForm({ name: '', phoneNumber: '+91', email: '', photo: '', documents: '', isActive: true, addidtionalMobile: '', address: '', identifyNumber: '', latitude: 0,longitude: 0, place: '',referenceById: 0 }); }}>{showForm ? 'Cancel' : 'Add Customer'}</Button>
       </div>
 
       {showForm && (

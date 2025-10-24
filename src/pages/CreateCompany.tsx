@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import Button from '../components/Button'
 import { buildApiUrl } from '../utils/api'
 import { useNavigate } from 'react-router-dom'
