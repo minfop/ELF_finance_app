@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux'
 import type { RootState } from '../store/store'
 import Button from '../components/Button'
 import { buildApiUrl } from '../utils/api'
+import { useSearchParams, Link } from 'react-router-dom'
 
 type LineTypeOpt = { id: number; name: string }
 type Installment = { id: number; dueAt?: string; createdAt?: string; status?: string; amount?: string }
@@ -16,6 +17,10 @@ function Lines() {
   const [error, setError] = useState<string | undefined>()
   const [form, setForm] = useState({ lineTypeId: 0, date: '' })
   const [touched, setTouched] = useState(false)
+  const [quickLoanId, setQuickLoanId] = useState<number | null>(null)
+  const [quickOnline, setQuickOnline] = useState(false)
+  const [quickForm, setQuickForm] = useState({ date: '', amount: 0, cashInOnline: 0, cashInHand: 0 })
+  const [searchParams, setSearchParams] = useSearchParams()
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) { 
     setForm((s) => ({ ...s, [key]: value }));
@@ -30,38 +35,127 @@ function Lines() {
 
   async function fetchLineTypes() {
     try {
-      const res = await fetch(buildApiUrl('/line-types'), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
+      const res = await fetch(buildApiUrl('line-types/by-user'), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
       if (!res.ok) return
       const j = await res.json()
       setLineTypes(Array.isArray(j?.data) ? j.data.map((x: any) => ({ id: x.id, name: x.name })) : [])
     } catch {}
   }
 
+  async function fetchLoansByLine(lineTypeId: number) {
+    try {
+      setLoading(true)
+      setError(undefined)
+      const res = await fetch(buildApiUrl(`/loans/linetype/${lineTypeId}`), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
+      const j = await res.json();
+      if (j.success) {
+        const all: any[] = Array.isArray(j?.data) ? j.data : []
+        setLoans(all)
+      } else {
+        setError(j?.message)
+        setLoans([])
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Request failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setTouched(true)
     if (Object.values(formErrors).some(Boolean)) return
-    try {
-      setLoading(true)
-      setError(undefined)
-      // filter client-side using loans list if API for filtering not available
-      const res = await fetch(buildApiUrl(`/loans/linetype/${form.lineTypeId}`), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
-      //if (!res.ok) throw new Error('Failed to load loans')
-      const j = await res.json();
-      if(j.success) {
-      const all: any[] = Array.isArray(j?.data) ? j.data : []
-      // const filtered = all.filter((l) => Number(l.lineTypeId) === Number(form.lineTypeId))
-      setLoans(all)
-      } else {
-        setError(j?.message);
-        setLoans([]);
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Request failed')
-    } finally { setLoading(false) }
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set('lineTypeId', String(form.lineTypeId))
+      return next
+    })
+    fetchLoansByLine(form.lineTypeId)
   }
 
   useEffect(() => { fetchLineTypes() }, [])
+
+  // Restore selection from URL on mount
+  useEffect(() => {
+    const p = Number(searchParams.get('lineTypeId') || 0)
+    if (p > 0) {
+      setForm((s) => ({ ...s, lineTypeId: p }))
+      fetchLoansByLine(p)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function formatDateInput(date: Date): string {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate(),).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  async function markMissed(loanId: number) {
+    const ok = window.confirm('Mark this installment missed for today?')
+    if (!ok) return
+    try {
+      setLoading(true)
+      const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId }) })
+      if (!res.ok) throw new Error('Failed to mark missed')
+      if (form.lineTypeId) await fetchLoansByLine(form.lineTypeId)
+    } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
+  }
+
+  function openQuickPay(loanId: number) {
+    const today = new Date()
+    const fmt = (d: Date) => new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString().slice(0, 10)
+    const ln = loans.find((x) => x.id === loanId)
+    let amt = 0
+    if (ln) {
+      const anyLn = ln as any
+      if (anyLn && anyLn.installmentAmount != null) {
+        amt = Number(anyLn.installmentAmount) || 0
+      } else {
+        const items = Array.isArray(ln.installments) ? ln.installments : []
+        const todayStr = fmt(today)
+        const todayAmt = items
+          .filter((it) => String(it.dueAt || '').slice(0, 10) === todayStr)
+          .reduce((s, it) => s + (parseFloat(String(it.amount || 0)) || 0), 0)
+        if (todayAmt > 0) amt = todayAmt
+        else if (items.length > 0) amt = parseFloat(String(items[0].amount || 0)) || 0
+      }
+    }
+    setQuickLoanId(loanId)
+    setQuickOnline(false)
+    setQuickForm({ date: formatDateInput(today), amount: amt, cashInOnline: 0, cashInHand: amt })
+  }
+
+  useEffect(() => {
+    if (!quickOnline) return
+    const rem = Math.max(0, quickForm.amount - quickForm.cashInOnline)
+    if (rem !== quickForm.cashInHand) setQuickForm((s) => ({ ...s, cashInHand: rem }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickOnline, quickForm.amount, quickForm.cashInOnline])
+
+  async function submitQuickPay(e: FormEvent) {
+    e.preventDefault()
+    if (!quickLoanId) return
+    try {
+      setLoading(true)
+      const payload = {
+        loanId: quickLoanId,
+        date: quickForm.date,
+        amount: quickForm.amount,
+        cashInHand: quickOnline ? quickForm.cashInHand : quickForm.amount,
+        cashInOnline: quickOnline ? quickForm.cashInOnline : 0,
+      }
+      const res = await fetch(buildApiUrl('/installments'), { method: 'POST', headers: { accept: '*/*', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.message || 'Failed to record installment')
+      }
+      setQuickLoanId(null)
+      if (form.lineTypeId) await fetchLoansByLine(form.lineTypeId)
+    } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
+  }
 
   return (
     <section>
@@ -75,11 +169,7 @@ function Lines() {
           </select>
           {formErrors.lineTypeId && <p className="mt-1 text-xs text-red-600">{formErrors.lineTypeId}</p>}
         </div>
-        {/* <div>
-          <label className="block text-sm font-medium text-gray-700">Date</label>
-          <input type="date" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={form.date} onChange={(e) => update('date', e.target.value)} />
-          {formErrors.date && <p className="mt-1 text-xs text-red-600">{formErrors.date}</p>}
-        </div> */}
+        {/* Date input removed as per user */}
         <div className="flex items-end">
           <Button type="submit" disabled={loading}>{loading ? 'Filtering...' : 'Filter'}</Button>
         </div>
@@ -96,6 +186,7 @@ function Lines() {
                 <th className="text-left px-4 py-2">Balance Amount</th>
                 <th className="text-left px-4 py-2">Today</th>
                 <th className="text-left px-4 py-2">Installments</th>
+                <th className="text-right px-4 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -134,11 +225,16 @@ function Lines() {
                       )
                     })()}
                   </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    <Link className="mr-2 text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
+                    <button className="mr-2 text-amber-600 hover:text-amber-700" onClick={() => markMissed(l.id)}>Missed</button>
+                    <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+                  </td>
                 </tr>
               ))}
               {loans.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-gray-600" colSpan={4}>{loading ? 'Loading...' : 'No loans found.'}</td>
+                  <td className="px-4 py-8 text-center text-gray-600" colSpan={7}>{loading ? 'Loading...' : 'No loans found.'}</td>
                 </tr>
               )}
             </tbody>
@@ -186,12 +282,56 @@ function Lines() {
                 <div>Balance: ₹ {l.balanceAmount}</div>
               </div>
             </div>
+            <div className="mt-3 flex items-center justify-end gap-3">
+              <Link className="text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
+              <button className="text-amber-600 hover:text-amber-700" onClick={() => markMissed(l.id)}>Missed</button>
+              <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+            </div>
           </div>
         ))}
         {loans.length === 0 && (
           <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-600">{loading ? 'Loading...' : 'No loans found.'}</div>
         )}
       </div>
+      {quickLoanId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setQuickLoanId(null)} />
+          <div className="relative bg-white rounded-xl border border-gray-200 p-4 w-full max-w-lg shadow-lg">
+            <h3 className="text-lg font-semibold mb-3">Quick Pay</h3>
+            {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+            <form onSubmit={submitQuickPay} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <input type="date" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={quickForm.date} onChange={(e) => setQuickForm((s) => ({ ...s, date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Amount</label>
+                <input type="number" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={quickForm.amount} onChange={(e) => setQuickForm((s) => ({ ...s, amount: Number(e.target.value) }))} />
+              </div>
+              <div className="flex items-center gap-2 mt-7">
+                <input type="checkbox" checked={quickOnline} onChange={(e) => setQuickOnline(e.target.checked)} />
+                <span className="text-sm text-gray-700">Online payment</span>
+              </div>
+              {quickOnline && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Cash In Online</label>
+                    <input type="number" className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3" value={quickForm.cashInOnline} onChange={(e) => setQuickForm((s) => ({ ...s, cashInOnline: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Cash In Hand</label>
+                    <input type="number" disabled className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3 bg-gray-50" value={quickForm.cashInHand} />
+                  </div>
+                </>
+              )}
+              <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+                <Button type="button" onClick={() => setQuickLoanId(null)} className="bg-gray-200 text-gray-800">Cancel</Button>
+                <Button type="submit" disabled={loading}>{loading ? 'Saving...' : 'Mark Paid'}</Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {error && <div className="text-sm text-red-600 mt-4">{error}</div>}
     </section>
   )

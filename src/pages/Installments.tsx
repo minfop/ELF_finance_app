@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../store/store'
 import Button from '../components/Button'
@@ -24,6 +24,7 @@ function formatDateInput(date: Date): string {
 
 function Installments() {
   const { loanId } = useParams()
+  const navigate = useNavigate()
   const token = useSelector((s: RootState) => s.auth.authToken)
   const [items, setItems] = useState<Installment[]>([])
   const [header, setHeader] = useState<{ customerName: string; customerPhone: string; totalAmount: number; balanceAmount: number } | null>(null)
@@ -114,10 +115,9 @@ function Installments() {
         const j = await res.json().catch(() => ({}))
         throw new Error(j?.message || 'Failed to record installment')
       }
-      update('amount', 0)
-      update('cashInOnline', 0)
-      update('cashInHand', 0)
-      fetchList()
+      // On success, go back to the previous page
+      navigate(-1)
+      return
     } catch (e: any) {
       setError(e?.message || 'Request failed')
     } finally {
@@ -127,7 +127,10 @@ function Installments() {
 
   return (
     <section>
-      <h1 className="text-2xl font-semibold mb-4">Installments - Loan #{loanId}</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold">Installments - Loan #{loanId}</h1>
+        <Button onClick={() => navigate(-1)} className="bg-gray-200 text-gray-800 hover:bg-gray-300">Back</Button>
+      </div>
 
       <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
         <h2 className="text-lg font-semibold mb-4">Record Payment</h2>

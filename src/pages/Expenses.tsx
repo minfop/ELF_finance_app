@@ -68,7 +68,7 @@ function Expenses() {
 
   async function fetchLineTypes() {
     try {
-      const res = await fetch(buildApiUrl('/line-types'), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
+      const res = await fetch(buildApiUrl('line-types/by-user'), { headers: { accept: 'application/json', Authorization: `Bearer ${token}` } })
       if (!res.ok) return
       const j = await res.json()
       const arr = Array.isArray(j?.data) ? j.data : []

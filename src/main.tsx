@@ -20,7 +20,6 @@ import Installments from './pages/Installments.tsx'
 import Lines from './pages/Lines.tsx'
 import ExpensesTypes from './pages/ExpensesTypes.tsx'
 import Expenses from './pages/Expenses.tsx'
-import App from './App.tsx'
 
 const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
