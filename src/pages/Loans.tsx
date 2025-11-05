@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../store/store'
 import Button from '../components/Button'
+import Loader from '../components/Loader'
 import { buildApiUrl } from '../utils/api'
 
 type Loan = {
@@ -47,6 +48,8 @@ function Loans() {
   const [loanTypes, setLoanTypes] = useState<LoanTypeOpt[]>([])
   const [lineTypes, setLineTypes] = useState<LineTypeOpt[]>([])
   const [customerQuery, setCustomerQuery] = useState('')
+  const [filterName, setFilterName] = useState('')
+  const [filterLineTypeId, setFilterLineTypeId] = useState<number>(0)
 
   const [form, setForm] = useState({
     customerId: 0,
@@ -59,7 +62,8 @@ function Loans() {
     isActive: true,
   })
   const [touched, setTouched] = useState(false)
-  const [editInfo, setEditInfo] = useState({ customerName: '', customerPhone: '', disbursedAmount: '', installmentAmount: '' })
+  const [editInfo, setEditInfo] = useState({ customerName: '', customerPhone: '', disbursedAmount: '', installmentAmount: '', balanceAmount: '' })
+  const [missedLoanId, setMissedLoanId] = useState<number | null>(null)
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((s) => ({ ...s, [key]: value }))
@@ -122,6 +126,15 @@ function Loans() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const filteredLoans = useMemo(() => {
+    const name = filterName.trim().toLowerCase()
+    return loans.filter((l) => {
+      const okName = !name || l.customerName.toLowerCase().includes(name)
+      const okLine = !filterLineTypeId || l.lineTypeId === filterLineTypeId
+      return okName && okLine
+    })
+  }, [loans, filterName, filterLineTypeId])
+
   // Auto-fill interest and loanTypeId based on selected line type
   useEffect(() => {
     const lt = lineTypes.find((x) => x.id === form.lineTypeId)
@@ -183,7 +196,31 @@ function Loans() {
       customerPhone: loan.customerPhone,
       disbursedAmount: loan.disbursedAmount,
       installmentAmount: loan.installmentAmount,
+      balanceAmount: String(loan.balanceAmount),
     })
+  }
+
+  async function onCloseLoan() {
+    if (!isEditing || editingId == null) return
+    const ok = window.confirm('Close this loan? This will mark it as CLOSED and inactive.')
+    if (!ok) return
+    try {
+      setLoading(true)
+      const payload = { ...form, status: 'CLOSED', isActive: false }
+      const res = await fetch(buildApiUrl(`/loans/${editingId}`), { method: 'PUT', headers: { accept: '*/*', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.message || 'Failed to close loan')
+      }
+      setShowForm(false)
+      setEditingId(null)
+      setForm({ customerId: 0, principal: 0, interest: 0, loanTypeId: 0, lineTypeId: 0, startDate: '', status: 'ONGOING', isActive: true })
+      fetchLoans()
+    } catch (e: any) {
+      setError(e?.message || 'Request failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function onDeactivate(id: number) {
@@ -197,11 +234,46 @@ function Loans() {
     } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
   }
 
+  async function confirmMissed() {
+    if (missedLoanId == null) return
+    try {
+      setLoading(true)
+      const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId: missedLoanId }) })
+      if (!res.ok) throw new Error('Failed to mark missed')
+      setMissedLoanId(null)
+      fetchLoans()
+    } catch (e: any) {
+      setError(e?.message || 'Request failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <section>
       <div className="flex items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-semibold">Loans</h1>
         <Button onClick={() => { setShowForm((v) => !v); setEditingId(null); setForm({ customerId: 0, principal: 0, interest: 0, loanTypeId: 0, lineTypeId: 0, startDate: '', status: 'ONGOING', isActive: true }) }}>{showForm ? 'Cancel' : 'Add Loan'}</Button>
+      </div>
+
+      {/* Filters */}
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <input
+          className="h-9 rounded-md border border-gray-300 px-3"
+          placeholder="Filter by customer name"
+          value={filterName}
+          onChange={(e) => setFilterName(e.target.value)}
+        />
+        <select
+          className="h-9 rounded-md border border-gray-300 px-3"
+          value={filterLineTypeId}
+          onChange={(e) => setFilterLineTypeId(Number(e.target.value))}
+        >
+          <option value={0}>All line types</option>
+          {lineTypes.map((lt) => (
+            <option key={lt.id} value={lt.id}>{lt.name}</option>
+          ))}
+        </select>
       </div>
 
       {showForm && (
@@ -286,9 +358,18 @@ function Loans() {
                   <label className="block text-sm font-medium text-gray-700">Installment Amount</label>
                   <input disabled className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3 bg-gray-50 text-gray-700" value={editInfo.installmentAmount} />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Balance Amount</label>
+                  <input disabled className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3 bg-gray-50 text-gray-700" value={editInfo.balanceAmount} />
+                </div>
                 <div className="flex items-center gap-2 mt-7">
                   <input type="checkbox" checked={form.isActive} onChange={(e) => update('isActive', e.target.checked)} />
                   <span className="text-sm text-gray-700">Active</span>
+                </div>
+                <div className="md:col-span-3 flex items-center gap-2">
+                  <Button type="button" onClick={onCloseLoan} disabled={loading}>
+                    {loading ? 'Closing...' : 'Close Loan'}
+                  </Button>
                 </div>
               </>
             )}
@@ -324,7 +405,7 @@ function Loans() {
               </tr>
             </thead>
             <tbody>
-              {loans.map((l) => (
+              {filteredLoans.map((l) => (
                 <tr key={l.id} className="border-b last:border-b-0">
                   <td className="px-4 py-2">{l.customerName} <span className="text-gray-500">(<a href={`tel:${l.customerPhone}`} className="text-primary hover:underline">{l.customerPhone}</a>)</span></td>
                   <td className="px-4 py-2">₹ {l.principal}</td>
@@ -345,17 +426,12 @@ function Loans() {
                   </td>
                   <td className="px-4 py-2 text-right">
                     <button className="mr-2 text-gray-600 hover:text-gray-900" title="Edit" onClick={() => onEdit(l)}>✏️</button>
-                    <a className="mr-2 text-primary hover:underline" href={`/loans/${l.id}/installments`}>Paid</a>
-                    <button className="mr-2 text-amber-600 hover:text-amber-700" title="Mark Missed" onClick={async () => {
-                      const ok = window.confirm('Mark this installment missed for today?')
-                      if (!ok) return
-                      try {
-                        setLoading(true)
-                        const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId: l.id }) })
-                        if (!res.ok) throw new Error('Failed to mark missed')
-                        fetchLoans()
-                      } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
-                    }}>Missed</button>
+                    {String(l.status).toUpperCase() !== 'COMPLETED' && (
+                      <a className="mr-2 text-primary hover:underline" href={`/loans/${l.id}/installments`}>Paid</a>
+                    )}
+                    {String(l.status).toUpperCase() !== 'COMPLETED' && (
+                      <button className="mr-2 text-amber-600 hover:text-amber-700" title="Mark Missed" onClick={() => setMissedLoanId(l.id)}>Missed</button>
+                    )}
                     <button className="text-red-600 hover:text-red-700" title="Deactivate" onClick={() => onDeactivate(l.id)}>🗑️</button>
                   </td>
                 </tr>
@@ -373,7 +449,7 @@ function Loans() {
       </div>
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
-        {loans.map((l) => (
+        {filteredLoans.map((l) => (
           <div key={l.id} className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="flex items-center justify-between">
               <div className="font-semibold text-gray-900">{l.customerName} <span className="text-gray-500">(<a href={`tel:${l.customerPhone}`} className="text-primary hover:underline">{l.customerPhone}</a>)</span></div>
@@ -386,22 +462,19 @@ function Loans() {
               <div>Interest: ₹ {l.interest}</div>
               <div>Disbursed: ₹ {l.disbursedAmount}</div>
               <div>Installment: ₹ {l.installmentAmount}</div>
+              <div>Total: ₹ {l.totalAmount}</div>
+              <div>Balance: ₹ {l.balanceAmount}</div>
               <div>Type: {l.collectionType}-{l.collectionPeriod}</div>
               <div>Line: {l.lineTypeName}</div>
               <div>Start: {l.startDate?.slice(0,10)}</div>
             </div>
             <div className="mt-3 flex items-center justify-end gap-3">
-              <a className="text-primary hover:underline" href={`/loans/${l.id}/installments`}>Paid</a>
-              <button className="text-amber-600 hover:text-amber-700" title="Mark Missed" onClick={async () => {
-                const ok = window.confirm('Mark this installment missed for today?')
-                if (!ok) return
-                try {
-                  setLoading(true)
-                  const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId: l.id }) })
-                  if (!res.ok) throw new Error('Failed to mark missed')
-                  fetchLoans()
-                } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
-              }}>Missed</button>
+              {String(l.status).toUpperCase() !== 'COMPLETED' && (
+                <a className="text-primary hover:underline" href={`/loans/${l.id}/installments`}>Paid</a>
+              )}
+              {String(l.status).toUpperCase() !== 'COMPLETED' && (
+                <button className="text-amber-600 hover:text-amber-700" title="Mark Missed" onClick={() => setMissedLoanId(l.id)}>Missed</button>
+              )}
               <button className="text-gray-600 hover:text-gray-900" title="Edit" onClick={() => onEdit(l)}>✏️</button>
               <button className="text-red-600 hover:text-red-700" title="Deactivate" onClick={() => onDeactivate(l.id)}>🗑️</button>
             </div>
@@ -413,6 +486,21 @@ function Loans() {
           </div>
         )}
       </div>
+      <Loader show={loading} text={loading ? 'Loading...' : undefined} />
+      {missedLoanId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMissedLoanId(null)} />
+          <div className="relative bg-white rounded-xl border border-gray-200 p-5 w-full max-w-md shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Mark Missed?</h3>
+            <p className="text-sm text-gray-700 mb-4">Are you sure you want to mark today's installment as missed for this loan?</p>
+            {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" className="bg-gray-200 text-gray-800" onClick={() => setMissedLoanId(null)}>Cancel</Button>
+              <Button type="button" onClick={confirmMissed} disabled={loading}>{loading ? 'Marking...' : 'Yes, Mark Missed'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

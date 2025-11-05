@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../store/store'
 import Button from '../components/Button'
+import Loader from '../components/Loader'
 import { buildApiUrl } from '../utils/api'
 import { useSearchParams, Link } from 'react-router-dom'
 
 type LineTypeOpt = { id: number; name: string }
 type Installment = { id: number; dueAt?: string; createdAt?: string; status?: string; amount?: string }
-type Loan = { id: number; customerName: string; customerPhone: string; startDate: string; collectionType: string; collectionPeriod: number; lineTypeId: number; installments?: Installment[]; totalAmount?: number; balanceAmount?: number }
+type Loan = { id: number; customerName: string; customerPhone: string; startDate: string; collectionType: string; collectionPeriod: number; lineTypeId: number; status?: string; installments?: Installment[]; totalAmount?: number; balanceAmount?: number }
 
 function Lines() {
   const token = useSelector((s: RootState) => s.auth.authToken)
@@ -21,6 +22,8 @@ function Lines() {
   const [quickOnline, setQuickOnline] = useState(false)
   const [quickForm, setQuickForm] = useState({ date: '', amount: 0, cashInOnline: 0, cashInHand: 0 })
   const [searchParams, setSearchParams] = useSearchParams()
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [missedLoanId, setMissedLoanId] = useState<number | null>(null)
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) { 
     setForm((s) => ({ ...s, [key]: value }));
@@ -86,6 +89,17 @@ function Lines() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Ensure the date defaults to today's system date and restrict selection
+  useEffect(() => {
+    setForm((s) => ({ ...s, date: formatDateInput(new Date()) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const visibleLoans = useMemo(() => {
+    if (showCompleted) return loans
+    return loans.filter((l) => String(l.status || '').toUpperCase() !== 'COMPLETED')
+  }, [loans, showCompleted])
+
   function formatDateInput(date: Date): string {
     const y = date.getFullYear()
     const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -93,13 +107,13 @@ function Lines() {
     return `${y}-${m}-${d}`
   }
 
-  async function markMissed(loanId: number) {
-    const ok = window.confirm('Mark this installment missed for today?')
-    if (!ok) return
+  async function postMissed() {
+    if (missedLoanId == null) return
     try {
       setLoading(true)
-      const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId }) })
+      const res = await fetch(buildApiUrl('/installments/missed'), { method: 'POST', headers: { accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ loanId: missedLoanId }) })
       if (!res.ok) throw new Error('Failed to mark missed')
+      setMissedLoanId(null)
       if (form.lineTypeId) await fetchLoansByLine(form.lineTypeId)
     } catch (e: any) { setError(e?.message || 'Request failed') } finally { setLoading(false) }
   }
@@ -169,11 +183,25 @@ function Lines() {
           </select>
           {formErrors.lineTypeId && <p className="mt-1 text-xs text-red-600">{formErrors.lineTypeId}</p>}
         </div>
-        {/* Date input removed as per user */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Date</label>
+          <input
+            type="date"
+            className="mt-1 w-full h-9 rounded-md border border-gray-300 px-3 bg-white"
+            value={form.date}
+            min={form.date}
+            max={form.date}
+            onChange={(e) => update('date', e.target.value)}
+          />
+        </div>
         <div className="flex items-end">
           <Button type="submit" disabled={loading}>{loading ? 'Filtering...' : 'Filter'}</Button>
         </div>
       </form>
+      <div className="mb-4 flex items-center gap-2">
+        <input id="show-completed" type="checkbox" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />
+        <label htmlFor="show-completed" className="text-sm text-gray-800">Show Completed customer</label>
+      </div>
 
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
@@ -190,7 +218,7 @@ function Lines() {
               </tr>
             </thead>
             <tbody>
-              {loans.map((l) => (
+              {visibleLoans.map((l) => (
                 <tr key={l.id} className="border-b last:border-b-0">
                   <td className="px-4 py-2">{l.customerName}</td>
                   <td className="px-4 py-2"><a href={`tel:${l.customerPhone}`} className="text-primary hover:underline">{l.customerPhone}</a></td>
@@ -216,9 +244,15 @@ function Lines() {
                         const status = String(st || '').toUpperCase()
                         return status === 'PAID' ? 'bg-green-500' : status === 'MISSED' ? 'bg-red-500' : status === 'PARTIALLY' ? 'bg-amber-500' : 'bg-gray-400'
                       }
+                      const timeOf = (it: any) => {
+                        const d = it?.dueAt || it?.createdAt || ''
+                        const t = Date.parse(String(d))
+                        return Number.isFinite(t) ? t : 0
+                      }
+                      const sorted = [...items].sort((a, b) => timeOf(a) - timeOf(b))
                       return (
                         <div className="flex items-center gap-1">
-                          {items.map((it, idx) => (
+                          {sorted.map((it, idx) => (
                             <span key={it.id ?? idx} className={`inline-block w-2.5 h-2.5 rounded-full ${colorOf(it.status)}`} />
                           ))}
                         </div>
@@ -226,13 +260,17 @@ function Lines() {
                     })()}
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
-                    <Link className="mr-2 text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
-                    <button className="mr-2 text-amber-600 hover:text-amber-700" onClick={() => markMissed(l.id)}>Missed</button>
-                    <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+                    {String(l?.['status'] || '').toUpperCase() !== 'COMPLETED' && (
+                      <>
+                        <Link className="mr-2 text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
+                        <button className="mr-2 text-amber-600 hover:text-amber-700" onClick={() => setMissedLoanId(l.id)}>Missed</button>
+                        <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
-              {loans.length === 0 && (
+              {visibleLoans.length === 0 && (
                 <tr>
                   <td className="px-4 py-8 text-center text-gray-600" colSpan={7}>{loading ? 'Loading...' : 'No loans found.'}</td>
                 </tr>
@@ -242,7 +280,7 @@ function Lines() {
         </div>
       </div>
       <div className="md:hidden space-y-3">
-        {loans.map((l) => (
+        {visibleLoans.map((l) => (
           <div key={l.id} className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
@@ -258,9 +296,15 @@ function Lines() {
                       const status = String(st || '').toUpperCase()
                       return status === 'PAID' ? 'bg-green-500' : status === 'MISSED' ? 'bg-red-500' : status === 'PARTIALLY' ? 'bg-amber-500' : 'bg-gray-400'
                     }
+                    const timeOf = (it: any) => {
+                      const d = it?.dueAt || it?.createdAt || ''
+                      const t = Date.parse(String(d))
+                      return Number.isFinite(t) ? t : 0
+                    }
+                    const sorted = [...items].sort((a, b) => timeOf(a) - timeOf(b))
                     return (
                       <div className="flex items-center gap-1">
-                        {items.map((it, idx) => (
+                        {sorted.map((it, idx) => (
                           <span key={it.id ?? idx} className={`inline-block w-2.5 h-2.5 rounded-full ${colorOf(it.status)}`} />
                         ))}
                       </div>
@@ -283,13 +327,17 @@ function Lines() {
               </div>
             </div>
             <div className="mt-3 flex items-center justify-end gap-3">
-              <Link className="text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
-              <button className="text-amber-600 hover:text-amber-700" onClick={() => markMissed(l.id)}>Missed</button>
-              <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+              {String(l?.['status'] || '').toUpperCase() !== 'COMPLETED' && (
+                <>
+                  <Link className="text-primary hover:underline" to={`/loans/${l.id}/installments`}>Pay</Link>
+              <button className="text-amber-600 hover:text-amber-700" onClick={() => setMissedLoanId(l.id)}>Missed</button>
+                  <button className="text-green-700 hover:text-green-800" onClick={() => openQuickPay(l.id)}>QuickPay</button>
+                </>
+              )}
             </div>
           </div>
         ))}
-        {loans.length === 0 && (
+        {visibleLoans.length === 0 && (
           <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-600">{loading ? 'Loading...' : 'No loans found.'}</div>
         )}
       </div>
@@ -333,6 +381,21 @@ function Lines() {
         </div>
       )}
       {error && <div className="text-sm text-red-600 mt-4">{error}</div>}
+      <Loader show={loading} text={loading ? 'Loading...' : undefined} />
+      {missedLoanId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMissedLoanId(null)} />
+          <div className="relative bg-white rounded-xl border border-gray-200 p-5 w-full max-w-md shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Mark Missed?</h3>
+            <p className="text-sm text-gray-700 mb-4">Are you sure you want to mark today's installment as missed for this loan?</p>
+            {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" className="bg-gray-200 text-gray-800" onClick={() => setMissedLoanId(null)}>Cancel</Button>
+              <Button type="button" onClick={postMissed} disabled={loading}>{loading ? 'Marking...' : 'Yes, Mark Missed'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "ELF Finance",
+    "slug": "elf-finance-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "elffinance",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.elf.finance",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.elf.finance",
+      "softwareKeyboardLayoutMode": "pan",
+      "permissions": [],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": {
+            "scheme": "tel"
+          },
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "baseUrl": "",
+      "eas": {
+        "projectId": "198583c2-9155-43a6-be61-2cf0e88a9eba"
+      }
+    },
+    "owner": "elftechnologies"
+  }
+}

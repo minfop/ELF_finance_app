@@ -1,10 +1,11 @@
 import { type FormEvent, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { loginAsync } from '../store/slices/authSlice'
+import { loginAsync, refreshAsync } from '../store/slices/authSlice'
 import type { AppDispatch } from '../store/store'
 import { Link, useNavigate } from 'react-router-dom'
 import { type RootState } from '../store/store'
 import Button from '../components/Button'
+import { API_BASE_URL } from '../utils/api'
 
 function isValidPhone(number: string): boolean {
   return /^[0-9]{10}$/.test(number)
@@ -17,20 +18,94 @@ function Login() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [touched, setTouched] = useState(false)
+  const [mode, setMode] = useState<'password' | 'otp'>('password')
+  const [otp, setOtp] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpVerifyLoading, setOtpVerifyLoading] = useState(false)
+  const [otpError, setOtpError] = useState('')
   
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setTouched(true)
-    if (!isValidPhone(phone) || !password) return
-    const payload = { phoneNumber: `+91${phone}`, password }
-    const result = await dispatch(loginAsync(payload))
-    if (loginAsync.fulfilled.match(result)) {
-      navigate('/')
+    if (mode === 'password') {
+      if (!isValidPhone(phone) || !password) return
+      const payload = { phoneNumber: `+91${phone}`, password }
+      const result = await dispatch(loginAsync(payload))
+      if (loginAsync.fulfilled.match(result)) {
+        navigate('/')
+      }
+    } else {
+      if (!isValidPhone(phone)) return
+      if (!otpSent) return
+      if (!otp) return
+      await onVerifyOtp()
     }
   }
 
   const phoneError = touched && !isValidPhone(phone) ? 'Enter 10 digit number' : ''
-  const passwordError = touched && !password ? 'Password is required' : ''
+  const passwordError = touched && mode === 'password' && !password ? 'Password is required' : ''
+  const otpFieldError = touched && mode === 'otp' && otpSent && !otp ? 'Enter OTP' : ''
+
+  async function onSendOtp() {
+    setTouched(true)
+    setOtpError('')
+    if (!isValidPhone(phone)) return
+    try {
+      setOtpLoading(true)
+      const res = await fetch(`${API_BASE_URL}/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ phoneNumber: `+91${phone}` }),
+      })
+      const json = await res.json()
+      console.log("json", json);
+      if (!res.ok || json?.success === false) {
+        setOtpError(json?.message || 'Failed to send OTP')
+        setOtpSent(false)
+        return
+      }
+      setOtpSent(true)
+    } catch (e) {
+      setOtpError('Failed to send OTP')
+      setOtpSent(false)
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  async function onVerifyOtp() {
+    setTouched(true)
+    setOtpError('')
+    if (!isValidPhone(phone) || !otp) return
+    try {
+      setOtpVerifyLoading(true)
+      const res = await fetch(`${API_BASE_URL}/auth/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ phoneNumber: `+91${phone}`, otp }),
+      })
+      const json = await res.json()
+      if (!res.ok || json?.success === false) {
+        setOtpError(json?.message || 'Invalid OTP')
+        return
+      }
+      const refreshToken = json?.data?.tokens?.refreshToken as string | undefined
+      if (refreshToken) {
+        try { localStorage.setItem('refreshToken', refreshToken) } catch {}
+        const result = await dispatch(refreshAsync(refreshToken))
+        if (refreshAsync.fulfilled.match(result)) {
+          navigate('/')
+          return
+        }
+      }
+      setOtpError('Login failed. Please try again.')
+    } catch (e) {
+      setOtpError('Could not verify OTP')
+    } finally {
+      setOtpVerifyLoading(false)
+    }
+  }
 
   return (
     <>
@@ -66,7 +141,8 @@ function Login() {
       {/* Right login form */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm h-full w-full">
           <h1 className="text-2xl font-semibold mb-6 text-gray-900">Sign in</h1>
-          {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
+          {error && mode === 'password' && <div className="mb-4 text-sm text-red-600">{error}</div>}
+          {otpError && mode === 'otp' && <div className="mb-4 text-sm text-red-600">{otpError}</div>}
 
           <form onSubmit={onSubmit} className="w-full">
             <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
@@ -88,24 +164,88 @@ function Login() {
             </div>
             {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
 
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mt-4 mb-1">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-primary"><path d="M12 1.5A5.25 5.25 0 0 0 6.75 6.75v2.25H6a2.25 2.25 0 0 0-2.25 2.25v6A2.25 2.25 0 0 0 6 19.5h12a2.25 2.25 0 0 0 2.25-2.25v-6A2.25 2.25 0 0 0 18 9H17.25V6.75A5.25 5.25 0 0 0 12 1.5zm-3.75 5.25A3.75 3.75 0 0 1 12 3a3.75 3.75 0 0 1 3.75 3.75V9H8.25z"/></svg>
-              <span>Password</span>
+            {/* Mode buttons under phone field */}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => { setMode('password'); setTouched(false); setOtp(''); setOtpSent(false); setOtpError('') }}
+                className={`h-9 rounded-md border text-sm font-medium ${mode === 'password' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 border-gray-300'}`}
+                disabled={!isValidPhone(phone)}
+              >
+                Enter password
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('otp'); setTouched(false); setPassword('') }}
+                className={`h-9 rounded-md border text-sm font-medium ${mode === 'otp' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 border-gray-300'}`}
+                disabled={!isValidPhone(phone)}
+              >
+                Enter OTP
+              </button>
             </div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full h-9 rounded-md border border-gray-300 px-3 focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Enter password"
-            />
-            {passwordError && <p className="mt-1 text-xs text-red-600">{passwordError}</p>}
 
-            <div className="mt-6">
-              <Button type="submit" disabled={loading} className="w-full">
-                {loading ? 'Signing in...' : 'Sign in'}
-              </Button>
-            </div>
+            {mode === 'password' && (
+              <>
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mt-4 mb-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-primary"><path d="M12 1.5A5.25 5.25 0 0 0 6.75 6.75v2.25H6a2.25 2.25 0 0 0-2.25 2.25v6A2.25 2.25 0 0 0 6 19.5h12a2.25 2.25 0 0 0 2.25-2.25v-6A2.25 2.25 0 0 0 18 9H17.25V6.75A5.25 5.25 0 0 0 12 1.5zm-3.75 5.25A3.75 3.75 0 0 1 12 3a3.75 3.75 0 0 1 3.75 3.75V9H8.25z"/></svg>
+                  <span>Password</span>
+                </div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full h-9 rounded-md border border-gray-300 px-3 focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Enter password"
+                />
+                {passwordError && <p className="mt-1 text-xs text-red-600">{passwordError}</p>}
+
+                <div className="mt-6">
+                  <Button type="submit" disabled={loading} className="w-full">
+                    {loading ? 'Signing in...' : 'Sign in'}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {mode === 'otp' && (
+              <>
+                {!otpSent && (
+                  <div className="mt-4">
+                    <Button type="button" onClick={onSendOtp} disabled={otpLoading || !isValidPhone(phone)} className="w-full">
+                      {otpLoading ? 'Sending OTP...' : 'Send OTP'}
+                    </Button>
+                  </div>
+                )}
+                {otpSent && (
+                  <>
+                    <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mt-4 mb-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-primary"><path d="M12 4.5c-4.142 0-7.5 3.358-7.5 7.5s3.358 7.5 7.5 7.5 7.5-3.358 7.5-7.5-3.358-7.5-7.5-7.5zm.75 3.75a.75.75 0 0 1 1.5 0V12a.75.75 0 0 1-.22.53l-2.25 2.25a.75.75 0 1 1-1.06-1.06l2.03-2.03V8.25z"/></svg>
+                      <span>Enter OTP</span>
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full h-9 rounded-md border border-gray-300 px-3 focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="6-digit OTP"
+                    />
+                    {otpFieldError && <p className="mt-1 text-xs text-red-600">{otpFieldError}</p>}
+
+                    <div className="mt-4 flex gap-2">
+                      <Button type="button" onClick={onVerifyOtp} disabled={otpVerifyLoading || !otp} className="flex-1">
+                        {otpVerifyLoading ? 'Verifying...' : 'Verify & Sign in'}
+                      </Button>
+                      <Button type="button" onClick={onSendOtp} disabled={otpLoading} className="flex-1" variant="outline">
+                        {otpLoading ? 'Sending...' : 'Resend OTP'}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </form>
         </div>
       </div>
@@ -114,5 +254,6 @@ function Login() {
 }
 
 export default Login
+
 
 

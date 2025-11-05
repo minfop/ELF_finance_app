@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import type { RootState } from '../store/store'
 import Button from '../components/Button'
+import Loader from '../components/Loader'
 import { buildApiUrl } from '../utils/api'
 
 type Installment = {
@@ -242,6 +243,7 @@ function Installments() {
           </div>
         )}
       </div>
+      <Loader show={loading} text={loading ? 'Loading...' : undefined} />
     </section>
   )
 }
